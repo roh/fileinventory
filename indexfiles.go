@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -26,7 +27,16 @@ func main() {
 	root := "/Users/roh/Development/fileindexer"
 	err = filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
 		files = append(files, path)
-		if !info.IsDir() {
+		name := info.Name()
+		if info.IsDir() {
+			if strings.HasPrefix(name, ".") {
+				fmt.Println("Skipping folder", name)
+				return filepath.SkipDir
+			}
+			fmt.Println("Scanning contents in folder", name)
+		} else if strings.HasPrefix(name, ".") {
+			return nil
+		} else {
 			f, err := os.Open(path)
 			if err != nil {
 				log.Fatal(err)
@@ -38,7 +48,7 @@ func main() {
 				log.Fatal(err)
 			}
 			md5hash := fmt.Sprintf("%x", h.Sum(nil))
-			addFile(db, info.Name(), info.Size(), md5hash, info.ModTime(), path)
+			addFile(db, name, info.Size(), md5hash, info.ModTime(), path)
 			fmt.Println(md5hash, info.ModTime(), info.Size(), info.Name())
 		}
 		return nil
