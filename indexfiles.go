@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/md5"
 	"database/sql"
+	"flag"
 	"fmt"
 	"io"
 	"log"
@@ -15,6 +16,11 @@ import (
 )
 
 func main() {
+	var sourceFlag = flag.String("source", "", "blah")
+	flag.Parse()
+	if *sourceFlag == "" {
+		log.Fatal("Please specify a source flag, i.e. -source mylaptop")
+	}
 	db, err := sql.Open("sqlite3", "./index.db")
 	if err != nil {
 		log.Fatal(err)
@@ -33,7 +39,7 @@ func main() {
 				fmt.Println("Skipping folder", name)
 				return filepath.SkipDir
 			}
-			fmt.Println("Scanning contents in folder", name)
+			fmt.Println("Scanning folder", name, "...")
 		} else if strings.HasPrefix(name, ".") {
 			return nil
 		} else {
@@ -48,7 +54,7 @@ func main() {
 				log.Fatal(err)
 			}
 			md5hash := fmt.Sprintf("%x", h.Sum(nil))
-			addFile(db, name, info.Size(), md5hash, info.ModTime(), path)
+			addFile(db, *sourceFlag, path, md5hash, name, info.Size(), info.ModTime(), time.Now())
 			fmt.Println(md5hash, info.ModTime(), info.Size(), info.Name())
 		}
 		return nil
@@ -59,19 +65,30 @@ func main() {
 }
 
 const tableCreateFilesSQL = `CREATE TABLE if not exists files (
-    filename TEXT,
-    size int,
-    md5hash TEXT,
-    modified timestamp,
+    source TEXT NOT NULL,
+    path TEXT NOT NULL,
+    md5hash TEXT NOT NULL,
+    filename TEXT NOT NULL,
+    size int NOT NULL,
+    modified TIMESTAMP NOT NULL,
     extension TEXT,
-    path TEXT,
-    source TEXT,
     filetype TEXT,
     classification TEXT,
-    tags TEXT
+	tags TEXT,
+	discovered TIMESTAMP NOT NULL,
+	last_checked TIMESTAMP NOT NULL,
+	unique(source, path, md5hash)
    )`
 
-const insertFileSQL = "INSERT INTO files (filename, size, md5hash, modified, path) VALUES (?, ?, ?, ?, ?)"
+// If the file changes, it is considered a different file, even if it is in the same path.
+const insertFileSQL = `INSERT INTO files (source, path, md5hash, filename, size, modified, discovered, last_checked)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT (source, path, md5hash) DO UPDATE SET
+  filename=excluded.filename,
+  size=excluded.size,
+  modified=excluded.modified,
+  last_checked=excluded.last_checked
+`
 
 func initDatabase(db *sql.DB) {
 	_, err := db.Exec(tableCreateFilesSQL)
@@ -80,8 +97,8 @@ func initDatabase(db *sql.DB) {
 	}
 }
 
-func addFile(db *sql.DB, filename string, size int64, md5hash string, modified time.Time, path string) {
-	_, err := db.Exec(insertFileSQL, filename, size, md5hash, modified, path)
+func addFile(db *sql.DB, source string, path string, md5hash string, filename string, size int64, modified time.Time, lastChecked time.Time) {
+	_, err := db.Exec(insertFileSQL, source, path, md5hash, filename, size, modified, lastChecked, lastChecked)
 	if err != nil {
 		log.Panic(err)
 	}
