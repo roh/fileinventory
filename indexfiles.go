@@ -9,7 +9,6 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/roh/filetools/models"
@@ -37,12 +36,12 @@ func main() {
 		files = append(files, path)
 		name := info.Name()
 		if info.IsDir() {
-			if strings.HasPrefix(name, ".") {
+			if IsHidden(name) {
 				fmt.Println("Skipping folder", name)
 				return filepath.SkipDir
 			}
 			fmt.Println("Scanning folder", name, "...")
-		} else if strings.HasPrefix(name, ".") {
+		} else if IsHidden(name) {
 			return nil
 		} else {
 			f, err := os.Open(path)
@@ -57,7 +56,7 @@ func main() {
 			}
 			md5hash := fmt.Sprintf("%x", h.Sum(nil))
 			foundFile := models.FoundFile{Source: *sourceFlag, Path: path, Md5hash: md5hash, Name: name, Extension: GetNormalizedExtension(path), Type: GetFileType(path), Size: info.Size(), Modified: info.ModTime(), LastChecked: time.Now()}
-			fmt.Println(foundFile)
+			fmt.Println("Found", foundFile.Name)
 			foundFile.Add(db)
 		}
 		return nil
