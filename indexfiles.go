@@ -12,6 +12,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/roh/filetools/models"
+
 	_ "github.com/mattn/go-sqlite3"
 )
 
@@ -26,7 +28,7 @@ func main() {
 		log.Fatal(err)
 	}
 	defer db.Close()
-	initDatabase(db)
+	models.CreateFoundFileTable(db)
 
 	var files []string
 
@@ -54,54 +56,13 @@ func main() {
 				log.Fatal(err)
 			}
 			md5hash := fmt.Sprintf("%x", h.Sum(nil))
-			addFile(db, *sourceFlag, path, md5hash, name, GetNormalizedExtension(path), GetFileType(path), info.Size(), info.ModTime(), time.Now())
-			fmt.Println(md5hash, info.ModTime(), info.Size(), info.Name())
+			foundFile := models.FoundFile{Source: *sourceFlag, Path: path, Md5hash: md5hash, Name: name, Extension: GetNormalizedExtension(path), Type: GetFileType(path), Size: info.Size(), Modified: info.ModTime(), LastChecked: time.Now()}
+			fmt.Println(foundFile)
+			foundFile.Add(db)
 		}
 		return nil
 	})
 	if err != nil {
 		panic(err)
-	}
-}
-
-const tableCreateFilesSQL = `CREATE TABLE if not exists files (
-    source TEXT NOT NULL,
-    path TEXT NOT NULL,
-    md5hash TEXT NOT NULL,
-    filename TEXT NOT NULL,
-    size int NOT NULL,
-    modified TIMESTAMP NOT NULL,
-    extension TEXT,
-    filetype TEXT,
-    classification TEXT,
-	tags TEXT,
-	discovered TIMESTAMP NOT NULL,
-	last_checked TIMESTAMP NOT NULL,
-	unique(source, path, md5hash)
-   )`
-
-// If the file changes, it is considered a different file, even if it is in the same path.
-const insertFileSQL = `INSERT INTO files (source, path, md5hash, filename, extension, filetype, size, modified, discovered, last_checked)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-ON CONFLICT (source, path, md5hash) DO UPDATE SET
-  filename=excluded.filename,
-  filetype=excluded.filetype,
-  extension=excluded.extension,
-  size=excluded.size,
-  modified=excluded.modified,
-  last_checked=excluded.last_checked
-`
-
-func initDatabase(db *sql.DB) {
-	_, err := db.Exec(tableCreateFilesSQL)
-	if err != nil {
-		log.Fatal(err)
-	}
-}
-
-func addFile(db *sql.DB, source string, path string, md5hash string, filename string, ext string, filetype string, size int64, modified time.Time, lastChecked time.Time) {
-	_, err := db.Exec(insertFileSQL, source, path, md5hash, filename, ext, filetype, size, modified, lastChecked, lastChecked)
-	if err != nil {
-		log.Panic(err)
 	}
 }
