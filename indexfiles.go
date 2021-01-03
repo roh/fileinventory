@@ -16,7 +16,7 @@ import (
 )
 
 func main() {
-	var sourceFlag = flag.String("source", "", "blah")
+	var sourceFlag = flag.String("source", "", "")
 	flag.Parse()
 	if *sourceFlag == "" {
 		log.Fatal("Please specify a source flag, i.e. -source mylaptop")
@@ -54,7 +54,7 @@ func main() {
 				log.Fatal(err)
 			}
 			md5hash := fmt.Sprintf("%x", h.Sum(nil))
-			addFile(db, *sourceFlag, path, md5hash, name, info.Size(), info.ModTime(), time.Now())
+			addFile(db, *sourceFlag, path, md5hash, name, GetNormalizedExtension(path), GetFileType(path), info.Size(), info.ModTime(), time.Now())
 			fmt.Println(md5hash, info.ModTime(), info.Size(), info.Name())
 		}
 		return nil
@@ -81,10 +81,12 @@ const tableCreateFilesSQL = `CREATE TABLE if not exists files (
    )`
 
 // If the file changes, it is considered a different file, even if it is in the same path.
-const insertFileSQL = `INSERT INTO files (source, path, md5hash, filename, size, modified, discovered, last_checked)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+const insertFileSQL = `INSERT INTO files (source, path, md5hash, filename, extension, filetype, size, modified, discovered, last_checked)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT (source, path, md5hash) DO UPDATE SET
   filename=excluded.filename,
+  filetype=excluded.filetype,
+  extension=excluded.extension,
   size=excluded.size,
   modified=excluded.modified,
   last_checked=excluded.last_checked
@@ -97,8 +99,8 @@ func initDatabase(db *sql.DB) {
 	}
 }
 
-func addFile(db *sql.DB, source string, path string, md5hash string, filename string, size int64, modified time.Time, lastChecked time.Time) {
-	_, err := db.Exec(insertFileSQL, source, path, md5hash, filename, size, modified, lastChecked, lastChecked)
+func addFile(db *sql.DB, source string, path string, md5hash string, filename string, ext string, filetype string, size int64, modified time.Time, lastChecked time.Time) {
+	_, err := db.Exec(insertFileSQL, source, path, md5hash, filename, ext, filetype, size, modified, lastChecked, lastChecked)
 	if err != nil {
 		log.Panic(err)
 	}
