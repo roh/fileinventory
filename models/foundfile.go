@@ -48,8 +48,8 @@ func CreateFoundFileTable(db *sql.DB) {
 	}
 }
 
-// GetFoundFile ...
-func GetFoundFile(db *sql.DB, source string, path string) *FoundFile {
+// GetFoundFile only gets the last discovered found file for source and path
+func GetFoundFile(db *sql.DB, source string, path string, md5hash string) *FoundFile {
 	// FIXME: Not following go pattern, need to use interface
 	const sql = `
 		SELECT source, path, md5hash, name, size, modified, extension, type, category, label, discovered, last_checked

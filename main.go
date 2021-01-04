@@ -9,10 +9,9 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
-	"github.com/roh/filetools/models"
+	"github.com/roh/fileinventory/models"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -22,6 +21,12 @@ func main() {
 	indexSource := indexCmd.String("source", "", "")
 	indexLabel := indexCmd.String("label", "", "")
 	indexCategory := indexCmd.String("category", "", "")
+
+	path, err := os.Getwd()
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	if len(os.Args) < 2 {
 		fmt.Println("expected 'index' subcommand")
 		os.Exit(1)
@@ -32,14 +37,14 @@ func main() {
 		if *indexSource == "" {
 			log.Fatal("Please specify a source flag, i.e. -source mylaptop")
 		}
-		runIndexFiles(*indexSource, *indexCategory, *indexLabel)
+		scanPath(*indexSource, path, *indexCategory, *indexLabel)
 	default:
 		fmt.Println("expected 'index' subcommand")
 		os.Exit(1)
 	}
 }
 
-func runIndexFiles(source string, category string, label string) {
+func scanPath(source string, path string, category string, label string) {
 	db, err := sql.Open("sqlite3", "./index.db")
 	if err != nil {
 		log.Fatal(err)
@@ -47,8 +52,7 @@ func runIndexFiles(source string, category string, label string) {
 	defer db.Close()
 	models.CreateFoundFileTable(db)
 
-	root := "/Users/roh/Development/fileindexer"
-	foundFiles := scanFiles(db, root, source)
+	foundFiles := walkFiles(path, source)
 	fmt.Println()
 	if len(foundFiles) == 0 {
 		fmt.Println("No files found")
@@ -56,13 +60,22 @@ func runIndexFiles(source string, category string, label string) {
 	}
 	displayFoundFilesSummary(foundFiles)
 	fmt.Println("\nCalculating md5 sums and adding to database:")
+	prev := 0
+	new := 0
 	for _, ff := range foundFiles {
 		md5hash := getMd5hash(ff.Path)
-		if ff.Md5hash != md5hash {
+		previousFF := models.GetFoundFile(db, source, ff.Path, md5hash)
+		if previousFF != nil {
 			// File is "new" if md5hash is different
-			fmt.Println("\nWarning: md5 hash has changed for file", ff.Path)
-			ff.Md5hash = md5hash
-			ff.Discovered = time.Now()
+			previousFF.LastChecked = ff.LastChecked
+			previousFF.Type = ff.Type
+			previousFF.Size = ff.Size
+			previousFF.Modified = ff.Modified
+			ff = *previousFF
+			prev++
+			// TODO: Detect md5 hash changes and warn
+		} else {
+			new++
 		}
 		ff.Md5hash = md5hash
 		if len(category) > 0 {
@@ -75,12 +88,12 @@ func runIndexFiles(source string, category string, label string) {
 		ff.Save(db)
 		fmt.Print(".")
 	}
-	fmt.Println()
+	fmt.Println("\nNew:", new, "   Previous:", prev)
 }
 
-func scanFiles(db *sql.DB, root string, source string) []models.FoundFile {
+func walkFiles(path string, source string) []models.FoundFile {
 	var foundFiles []models.FoundFile
-	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+	err := filepath.Walk(path, func(path string, info os.FileInfo, err error) error {
 		if info.IsDir() {
 			if IsHidden(info.Name()) {
 				fmt.Println("Skipping folder", info.Name())
@@ -90,18 +103,13 @@ func scanFiles(db *sql.DB, root string, source string) []models.FoundFile {
 		} else if IsHidden(info.Name()) {
 			return nil
 		} else {
-			var ff models.FoundFile
-			previousFF := models.GetFoundFile(db, source, path)
-			if previousFF != nil {
-				ff = *previousFF
-			} else {
-				ff = models.FoundFile{Source: source, Path: path}
-			}
+			ff := models.FoundFile{Source: source, Path: path}
 			ff.Name = info.Name()
 			ff.Extension = GetNormalizedExtension(path)
 			ff.Type = GetFileType(path)
 			ff.Size = info.Size()
 			ff.Modified = info.ModTime()
+			ff.Discovered = time.Now()
 			foundFiles = append(foundFiles, ff)
 		}
 		return nil
@@ -131,35 +139,25 @@ func displayFoundFilesSummary(foundFiles []models.FoundFile) {
 	var dir string
 	lastDir := filepath.Dir(foundFiles[0].Path)
 	var dirFiles []models.FoundFile
-	nameLen := 4
-	typeLen := 4
 	for _, ff := range foundFiles {
 		dir = filepath.Dir(ff.Path)
 		if dir != lastDir {
-			println(dir)
-			displayFoundFileList(dirFiles, nameLen, typeLen)
+			fmt.Printf("\n%s\n", lastDir)
+			displayFoundFileList(dirFiles)
 			lastDir = dir
-			nameLen = 4
-			typeLen = 4
 			dirFiles = nil
 		}
 		dirFiles = append(dirFiles, ff)
-		nameLen = Max(nameLen, len(ff.Name))
-		typeLen = Max(typeLen, len(ff.Type))
 
 	}
-	println(dir)
-	displayFoundFileList(dirFiles, nameLen, typeLen)
+	fmt.Printf("\n%s\n", dir)
+	displayFoundFileList(dirFiles)
 }
 
-func displayFoundFileList(foundFiles []models.FoundFile, nameLen int, typeLen int) {
-	fmt.Print("Name", strings.Repeat(" ", nameLen))
-	fmt.Print("Type", strings.Repeat(" ", typeLen))
-	fmt.Print("Size (MB)    Modified            Discovered\n")
+func displayFoundFileList(foundFiles []models.FoundFile) {
+	fmt.Print("Discovered          Modified            Size (MB)    Type        Name\n")
 	for _, ff := range foundFiles {
 		s := float32(ff.Size) / 1000 / 1000
-		fmt.Print(ff.Name, strings.Repeat(" ", nameLen-len(ff.Name)))
-		fmt.Printf("    %s%s", ff.Type, strings.Repeat(" ", typeLen-len(ff.Type)))
-		fmt.Printf("    %-9.2f    %s    %s\n", s, ff.Modified.Format("2006-01-02 15:04"), ff.Discovered.Format("2006-01-02 15:04"))
+		fmt.Printf("%s    %s    %-5.f        %-8s    %s\n", ff.Discovered.Format("2006-01-02 15:04"), ff.Modified.Format("2006-01-02 15:04"), s, ff.Type, ff.Name)
 	}
 }
