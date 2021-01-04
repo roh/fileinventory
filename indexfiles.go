@@ -18,11 +18,28 @@ import (
 )
 
 func main() {
-	var sourceFlag = flag.String("source", "", "")
-	flag.Parse()
-	if *sourceFlag == "" {
-		log.Fatal("Please specify a source flag, i.e. -source mylaptop")
+	indexCmd := flag.NewFlagSet("index", flag.ExitOnError)
+	indexSource := indexCmd.String("source", "", "")
+	indexLabel := indexCmd.String("label", "", "")
+	indexCategory := indexCmd.String("category", "", "")
+	if len(os.Args) < 2 {
+		fmt.Println("expected 'index' subcommand")
+		os.Exit(1)
 	}
+	switch os.Args[1] {
+	case "index":
+		indexCmd.Parse(os.Args[2:])
+		if *indexSource == "" {
+			log.Fatal("Please specify a source flag, i.e. -source mylaptop")
+		}
+		runIndexFiles(*indexSource, *indexCategory, *indexLabel)
+	default:
+		fmt.Println("expected 'index' subcommand")
+		os.Exit(1)
+	}
+}
+
+func runIndexFiles(source string, category string, label string) {
 	db, err := sql.Open("sqlite3", "./index.db")
 	if err != nil {
 		log.Fatal(err)
@@ -31,7 +48,7 @@ func main() {
 	models.CreateFoundFileTable(db)
 
 	root := "/Users/roh/Development/fileindexer"
-	foundFiles := scanFiles(root, *sourceFlag)
+	foundFiles := scanFiles(root, source)
 	if len(foundFiles) == 0 {
 		fmt.Println("No files found")
 		return
@@ -40,6 +57,8 @@ func main() {
 	fmt.Print("\nCalculating md5 sums and adding to database")
 	for _, ff := range foundFiles {
 		ff.Md5hash = getMd5hash(ff.Path)
+		ff.Category = category
+		ff.Label = label
 		ff.LastChecked = time.Now()
 		ff.Save(db)
 		fmt.Print(".")

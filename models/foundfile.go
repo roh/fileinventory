@@ -15,6 +15,8 @@ type FoundFile struct {
 	Extension   string
 	Type        string
 	Size        int64
+	Category    string
+	Label       string
 	Modified    time.Time
 	Discovered  time.Time
 	LastChecked time.Time
@@ -32,8 +34,10 @@ func CreateFoundFileTable(db *sql.DB) {
 			modified TIMESTAMP NOT NULL,
 			extension TEXT,
 			type TEXT,
-			classification TEXT,
+			category TEXT,
+			label TEXT,
 			tags TEXT,
+			notes TEXT,
 			discovered TIMESTAMP NOT NULL,
 			last_checked TIMESTAMP NOT NULL,
 			unique(source, path, md5hash)
@@ -49,16 +53,18 @@ func (ff *FoundFile) Save(db *sql.DB) {
 	// If the file changes, it is considered a different file, even if it is in the same path.
 	// FIXME: Need to select before doing an upsert, since file may already be discovered, causing the discovered field to have side effects that aren't good
 	const sql = `
-		INSERT INTO found_files (source, path, md5hash, name, extension, type, size, modified, discovered, last_checked)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO found_files (source, path, md5hash, name, extension, type, size, modified, discovered, last_checked, category, label)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (source, path, md5hash) DO UPDATE SET
 			name=excluded.name,
 			type=excluded.type,
 			extension=excluded.extension,
 			size=excluded.size,
 			modified=excluded.modified,
-			last_checked=excluded.last_checked`
-	_, err := db.Exec(sql, ff.Source, ff.Path, ff.Md5hash, ff.Name, ff.Extension, ff.Type, ff.Size, ff.Modified, ff.Discovered, ff.LastChecked)
+			last_checked=excluded.last_checked,
+			category=excluded.category,
+			label=excluded.label`
+	_, err := db.Exec(sql, ff.Source, ff.Path, ff.Md5hash, ff.Name, ff.Extension, ff.Type, ff.Size, ff.Modified, ff.Discovered, ff.LastChecked, ff.Category, ff.Label)
 	if err != nil {
 		log.Panic(err)
 	}
