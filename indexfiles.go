@@ -41,7 +41,7 @@ func main() {
 	for _, ff := range foundFiles {
 		ff.Md5hash = getMd5hash(ff.Path)
 		ff.LastChecked = time.Now()
-		ff.Add(db)
+		ff.Save(db)
 		fmt.Print(".")
 	}
 	fmt.Println()
@@ -90,28 +90,34 @@ func displayFoundFilesSummary(foundFiles []models.FoundFile) {
 	lastDir := filepath.Dir(foundFiles[0].Path)
 	var dirFiles []models.FoundFile
 	nameLen := 4
+	typeLen := 4
 	for _, ff := range foundFiles {
 		dir = filepath.Dir(ff.Path)
 		if dir != lastDir {
 			println(dir)
-			displayFoundFileList(dirFiles, nameLen)
+			displayFoundFileList(dirFiles, nameLen, typeLen)
 			lastDir = dir
 			nameLen = 4
+			typeLen = 4
 			dirFiles = nil
 		}
 		dirFiles = append(dirFiles, ff)
 		nameLen = Max(nameLen, len(ff.Name))
+		typeLen = Max(typeLen, len(ff.Type))
 
 	}
 	println(dir)
-	displayFoundFileList(dirFiles, nameLen)
+	displayFoundFileList(dirFiles, nameLen, typeLen)
 }
 
-func displayFoundFileList(foundFiles []models.FoundFile, nameLen int) {
-	fmt.Print("Name", strings.Repeat(" ", nameLen+1), "Type           Size\n")
+func displayFoundFileList(foundFiles []models.FoundFile, nameLen int, typeLen int) {
+	fmt.Print("Name", strings.Repeat(" ", nameLen))
+	fmt.Print("Type", strings.Repeat(" ", typeLen))
+	fmt.Print("Size (MB)    Modified\n")
 	for _, ff := range foundFiles {
-		ffNameLen := len(ff.Name)
-		fmt.Print(ff.Name, strings.Repeat(" ", nameLen-ffNameLen))
-		fmt.Printf("     %-10s     %d\n", ff.Type, ff.Size)
+		s := float32(ff.Size) / 1000 / 1000
+		fmt.Print(ff.Name, strings.Repeat(" ", nameLen-len(ff.Name)))
+		fmt.Printf("    %s%s", ff.Type, strings.Repeat(" ", typeLen-len(ff.Type)))
+		fmt.Printf("    %-9.2f    %s\n", s, ff.Modified.Format("2006-01-02 15:04"))
 	}
 }

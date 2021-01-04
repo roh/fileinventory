@@ -44,8 +44,8 @@ func CreateFoundFileTable(db *sql.DB) {
 	}
 }
 
-// Add ...
-func (ff *FoundFile) Add(db *sql.DB) {
+// Save ...
+func (ff *FoundFile) Save(db *sql.DB) {
 	// If the file changes, it is considered a different file, even if it is in the same path.
 	// FIXME: Need to select before doing an upsert, since file may already be discovered, causing the discovered field to have side effects that aren't good
 	const sql = `
