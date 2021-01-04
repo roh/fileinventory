@@ -22,3 +22,11 @@ func GetFileType(path string) string {
 func IsHidden(name string) bool {
 	return strings.HasPrefix(name, ".")
 }
+
+// Max for ints
+func Max(x, y int) int {
+	if x > y {
+		return x
+	}
+	return y
+}
