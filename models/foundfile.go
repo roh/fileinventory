@@ -28,6 +28,7 @@ func CreateFoundFileTable(db *sql.DB) {
 		CREATE TABLE if not exists found_files (
 			source TEXT NOT NULL,
 			path TEXT NOT NULL,
+			status TEXT NOT NULL DEFAULT '',
 			md5hash TEXT NOT NULL,
 			name TEXT NOT NULL,
 			size int NOT NULL,
@@ -48,28 +49,49 @@ func CreateFoundFileTable(db *sql.DB) {
 	}
 }
 
-// GetFoundFile only gets the last discovered found file for source and path
-func GetFoundFile(db *sql.DB, source string, path string, md5hash string) *FoundFile {
+// GetFoundFileWithMd5hash ...
+func GetFoundFileWithMd5hash(db *sql.DB, source string, path string, md5hash string) *FoundFile {
 	// FIXME: Not following go pattern, need to use interface
 	const sql = `
 		SELECT source, path, md5hash, name, size, modified, extension, type, category, label, discovered, last_checked
-		FROM found_files WHERE source = ? and path = ?`
-	rows, err := db.Query(sql, source, path)
+		FROM found_files WHERE source = ? and path = ? and md5hash = ?`
+	rows, err := db.Query(sql, source, path, md5hash)
 	if err != nil {
 		log.Panic(err)
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var source, path, md5hash, name, extension, fileType, category, label string
-		var modified, lastChecked, discovered time.Time
-		var size int64
-		err = rows.Scan(&source, &path, &md5hash, &name, &size, &modified, &extension, &fileType, &category, &label, &discovered, &lastChecked)
-		if err != nil {
-			log.Fatal(err)
-		}
-		return &FoundFile{Source: source, Path: path, Md5hash: md5hash, Name: name, Extension: extension, Type: fileType, Size: size, Modified: modified, Category: category, Label: label, Discovered: discovered, LastChecked: lastChecked}
+		return toFoundFile(rows)
 	}
 	return nil
+}
+
+// GetFoundFileWithSize ...
+func GetFoundFileWithSize(db *sql.DB, source string, path string, size int64) *FoundFile {
+	// FIXME: Not following go pattern, need to use interface
+	const sql = `
+		SELECT source, path, md5hash, name, size, modified, extension, type, category, label, discovered, last_checked
+		FROM found_files WHERE source = ? and path = ? and size = ?`
+	rows, err := db.Query(sql, source, path, size)
+	if err != nil {
+		log.Panic(err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		return toFoundFile(rows)
+	}
+	return nil
+}
+
+func toFoundFile(rows *sql.Rows) *FoundFile {
+	var source, path, md5hash, name, extension, fileType, category, label string
+	var modified, lastChecked, discovered time.Time
+	var size int64
+	err := rows.Scan(&source, &path, &md5hash, &name, &size, &modified, &extension, &fileType, &category, &label, &discovered, &lastChecked)
+	if err != nil {
+		log.Fatal(err)
+	}
+	return &FoundFile{Source: source, Path: path, Md5hash: md5hash, Name: name, Extension: extension, Type: fileType, Size: size, Modified: modified, Category: category, Label: label, Discovered: discovered, LastChecked: lastChecked}
 }
 
 // Save ...

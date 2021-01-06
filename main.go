@@ -23,6 +23,7 @@ func main() {
 	indexLabel := indexCmd.String("label", "", "")
 	indexCategory := indexCmd.String("category", "", "")
 	indexDryrun := indexCmd.Bool("dryrun", false, "dryrun")
+	indexSkipDiscovered := indexCmd.Bool("skip-discovered", false, "skip discovered files (path, source, and size already match")
 
 	path, err := os.Getwd()
 	if err != nil {
@@ -53,30 +54,44 @@ func main() {
 		if *indexSource == "" {
 			log.Fatal("Please specify a source flag, i.e. -source mylaptop")
 		}
-		scanPath(db, *indexSource, path, *indexCategory, *indexLabel, *indexDryrun)
+		scanPath(db, *indexSource, path, *indexCategory, *indexLabel, *indexSkipDiscovered, *indexDryrun)
 	default:
 		fmt.Println("expected 'index' subcommand")
 		os.Exit(1)
 	}
 }
 
-func scanPath(db *sql.DB, source string, path string, category string, label string, dryrun bool) {
+func scanPath(db *sql.DB, source string, path string, category string, label string, skipDiscovered bool, dryrun bool) {
 	foundFiles := walkFiles(path, source)
 	fmt.Println()
 	if len(foundFiles) == 0 {
 		fmt.Println("No files found")
 		return
 	}
-	displayFoundFilesSummary(foundFiles)
+	prev, new, skipped := 0, 0, 0
+	var foundFiles2 []models.FoundFile
+	if skipDiscovered {
+		for _, ff := range foundFiles {
+			previousFF := models.GetFoundFileWithSize(db, source, ff.Path, ff.Size)
+			if previousFF != nil {
+				skipped++
+			} else {
+				foundFiles2 = append(foundFiles2, ff)
+			}
+		}
+	}
+	if foundFiles2 == nil {
+		fmt.Println("No new files found")
+		return
+	}
+	displayFoundFilesSummary(foundFiles2)
 	if dryrun {
 		return
 	}
 	fmt.Println("\nCalculating md5 sums and adding to database:")
-	prev := 0
-	new := 0
-	for _, ff := range foundFiles {
+	for _, ff := range foundFiles2 {
 		md5hash := getMd5hash(ff.Path)
-		previousFF := models.GetFoundFile(db, source, ff.Path, md5hash)
+		previousFF := models.GetFoundFileWithMd5hash(db, source, ff.Path, md5hash)
 		if previousFF != nil {
 			// File is "new" if md5hash is different
 			previousFF.LastChecked = ff.LastChecked
@@ -100,7 +115,7 @@ func scanPath(db *sql.DB, source string, path string, category string, label str
 		ff.Save(db)
 		fmt.Print(".")
 	}
-	fmt.Println("\nNew:", new, "   Previous:", prev)
+	fmt.Println("\nNew:", new, "   Previous:", prev, "   Skipped:", skipped)
 }
 
 func walkFiles(path string, source string) []models.FoundFile {
