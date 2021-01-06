@@ -9,6 +9,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sort"
 	"time"
 
 	"github.com/roh/fileinventory/models"
@@ -21,37 +22,45 @@ func main() {
 	indexSource := indexCmd.String("source", "", "")
 	indexLabel := indexCmd.String("label", "", "")
 	indexCategory := indexCmd.String("category", "", "")
+	indexDryrun := indexCmd.Bool("dryrun", false, "dryrun")
 
 	path, err := os.Getwd()
 	if err != nil {
 		log.Fatal(err)
 	}
-
 	if len(os.Args) < 2 {
 		fmt.Println("expected 'index' subcommand")
 		os.Exit(1)
 	}
-	switch os.Args[1] {
-	case "index":
-		indexCmd.Parse(os.Args[2:])
-		if *indexSource == "" {
-			log.Fatal("Please specify a source flag, i.e. -source mylaptop")
-		}
-		scanPath(*indexSource, path, *indexCategory, *indexLabel)
-	default:
-		fmt.Println("expected 'index' subcommand")
-		os.Exit(1)
+	if *indexDryrun {
+		fmt.Println("Running in dryrun mode")
 	}
-}
 
-func scanPath(source string, path string, category string, label string) {
-	db, err := sql.Open("sqlite3", "./index.db")
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		log.Fatal(err)
+	}
+	db, err := sql.Open("sqlite3", filepath.Join(homeDir, "index.db"))
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer db.Close()
 	models.CreateFoundFileTable(db)
 
+	switch os.Args[1] {
+	case "index":
+		indexCmd.Parse(os.Args[2:])
+		if *indexSource == "" {
+			log.Fatal("Please specify a source flag, i.e. -source mylaptop")
+		}
+		scanPath(db, *indexSource, path, *indexCategory, *indexLabel, *indexDryrun)
+	default:
+		fmt.Println("expected 'index' subcommand")
+		os.Exit(1)
+	}
+}
+
+func scanPath(db *sql.DB, source string, path string, category string, label string, dryrun bool) {
 	foundFiles := walkFiles(path, source)
 	fmt.Println()
 	if len(foundFiles) == 0 {
@@ -59,6 +68,9 @@ func scanPath(source string, path string, category string, label string) {
 		return
 	}
 	displayFoundFilesSummary(foundFiles)
+	if dryrun {
+		return
+	}
 	fmt.Println("\nCalculating md5 sums and adding to database:")
 	prev := 0
 	new := 0
@@ -117,6 +129,11 @@ func walkFiles(path string, source string) []models.FoundFile {
 	if err != nil {
 		panic(err)
 	}
+	sort.SliceStable(foundFiles, func(i, j int) bool {
+		p1, p2 := foundFiles[i].Path, foundFiles[j].Path
+		d1, d2 := filepath.Dir(p1), filepath.Dir(p2)
+		return d1 < d2
+	})
 	return foundFiles
 }
 
@@ -155,9 +172,9 @@ func displayFoundFilesSummary(foundFiles []models.FoundFile) {
 }
 
 func displayFoundFileList(foundFiles []models.FoundFile) {
-	fmt.Print("Discovered          Modified            Size (MB)    Type        Name\n")
+	fmt.Print("Discovered          Modified            Size (KB)    Type        Name\n")
 	for _, ff := range foundFiles {
-		s := float32(ff.Size) / 1000 / 1000
-		fmt.Printf("%s    %s    %-5.f        %-8s    %s\n", ff.Discovered.Format("2006-01-02 15:04"), ff.Modified.Format("2006-01-02 15:04"), s, ff.Type, ff.Name)
+		s := float32(ff.Size) / 1000
+		fmt.Printf("%s    %s    %9.f    %-8s    %s\n", ff.Discovered.Format("2006-01-02 15:04"), ff.Modified.Format("2006-01-02 15:04"), s, ff.Type, ff.Name)
 	}
 }
