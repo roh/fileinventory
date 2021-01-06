@@ -69,8 +69,8 @@ func scanPath(db *sql.DB, source string, path string, category string, label str
 		return
 	}
 	prev, new, skipped := 0, 0, 0
-	var foundFiles2 []models.FoundFile
 	if skipDiscovered {
+		var foundFiles2 []models.FoundFile
 		for _, ff := range foundFiles {
 			previousFF := models.GetFoundFileWithSize(db, source, ff.Path, ff.Size)
 			if previousFF != nil {
@@ -79,17 +79,18 @@ func scanPath(db *sql.DB, source string, path string, category string, label str
 				foundFiles2 = append(foundFiles2, ff)
 			}
 		}
+		if foundFiles2 == nil {
+			fmt.Println("No new files found")
+			return
+		}
+		foundFiles = foundFiles2
 	}
-	if foundFiles2 == nil {
-		fmt.Println("No new files found")
-		return
-	}
-	displayFoundFilesSummary(foundFiles2)
+	displayFoundFilesSummary(foundFiles)
 	if dryrun {
 		return
 	}
 	fmt.Println("\nCalculating md5 sums and adding to database:")
-	for _, ff := range foundFiles2 {
+	for _, ff := range foundFiles {
 		md5hash := getMd5hash(ff.Path)
 		previousFF := models.GetFoundFileWithMd5hash(db, source, ff.Path, md5hash)
 		if previousFF != nil {
