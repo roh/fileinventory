@@ -21,6 +21,8 @@ func main() {
 	indexSource := indexCmd.String("source", "", "")
 	indexLabel := indexCmd.String("label", "", "")
 	indexCategory := indexCmd.String("category", "", "")
+	indexSubcategory := indexCmd.String("subcategory", "", "")
+	indexTags := indexCmd.String("tags", "", "")
 	indexDb := indexCmd.String("db", "", "database path - defaults to $HOMEDIR/index.db")
 	indexDryrun := indexCmd.Bool("dryrun", false, "dryrun")
 	indexReindexDiscovered := indexCmd.Bool("reindex", false, "reindex previously discovered files that haven't changed")
@@ -45,14 +47,14 @@ func main() {
 		if *indexSource == "" {
 			log.Fatal("Please specify a source flag, i.e. -source mylaptop")
 		}
-		scanPath(*indexSource, path, *indexCategory, *indexLabel, *indexReindexDiscovered, *indexDryrun)
+		scanPath(*indexSource, path, *indexCategory, *indexSubcategory, *indexLabel, *indexTags, *indexReindexDiscovered, *indexDryrun)
 	default:
 		fmt.Println("expected 'index' subcommand")
 		os.Exit(1)
 	}
 }
 
-func scanPath(source string, path string, category string, label string, reindexDiscovered bool, dryrun bool) {
+func scanPath(source string, path string, category string, subcategory string, label string, tags string, reindexDiscovered bool, dryrun bool) {
 	foundFiles := walkFiles(path, source)
 	fmt.Println()
 	if len(foundFiles) == 0 {
@@ -109,9 +111,15 @@ func scanPath(source string, path string, category string, label string, reindex
 		ff.Md5hash = md5hash
 		if len(category) > 0 {
 			ff.Category = category
+			if len(subcategory) > 0 {
+				ff.Subcategory = subcategory
+			}
 		}
 		if len(label) > 0 {
 			ff.Label = label
+		}
+		if len(tags) > 0 {
+			ff.Tags = tags
 		}
 		ff.LastChecked = time.Now()
 		ff.Save()

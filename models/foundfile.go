@@ -16,7 +16,9 @@ type FoundFile struct {
 	Type        string
 	Size        int64
 	Category    string
+	Subcategory string
 	Label       string
+	Tags        string
 	Modified    time.Time
 	Discovered  time.Time
 	LastChecked time.Time
@@ -36,6 +38,7 @@ func CreateFoundFileTable() {
 			extension TEXT NOT NULL,
 			type TEXT NOT NULL DEFAULT '',
 			category TEXT NOT NULL DEFAULT '',
+			subcategory TEXT NOT NULL DEFAULT '',
 			label TEXT NOT NULL DEFAULT '',
 			tags TEXT NOT NULL DEFAULT '',
 			notes TEXT NOT NULL DEFAULT '',
@@ -53,7 +56,7 @@ func CreateFoundFileTable() {
 func GetFoundFileWithMd5hash(source string, path string, md5hash string) *FoundFile {
 	// FIXME: Not following go pattern, need to use interface
 	const sql = `
-		SELECT source, path, md5hash, name, size, modified, extension, type, category, label, discovered, last_checked
+		SELECT source, path, md5hash, name, size, modified, extension, type, category, subcategory, label, tags, discovered, last_checked
 		FROM found_files WHERE source = ? and path = ? and md5hash = ?`
 	rows, err := db.Query(sql, source, path, md5hash)
 	if err != nil {
@@ -70,7 +73,7 @@ func GetFoundFileWithMd5hash(source string, path string, md5hash string) *FoundF
 func GetFoundFileWithSizeAndModified(source string, path string, size int64, modified time.Time) *FoundFile {
 	// FIXME: Not following go pattern, need to use interface
 	const sql = `
-		SELECT source, path, md5hash, name, size, modified, extension, type, category, label, discovered, last_checked
+		SELECT source, path, md5hash, name, size, modified, extension, type, category, subcategory, label, tags, discovered, last_checked
 		FROM found_files WHERE source = ? and path = ? and size = ? and modified = ?`
 	rows, err := db.Query(sql, source, path, size, modified)
 	if err != nil {
@@ -84,22 +87,22 @@ func GetFoundFileWithSizeAndModified(source string, path string, size int64, mod
 }
 
 func toFoundFile(rows *sql.Rows) *FoundFile {
-	var source, path, md5hash, name, extension, fileType, category, label string
+	var source, path, md5hash, name, extension, fileType, category, subcategory, label, tags string
 	var modified, lastChecked, discovered time.Time
 	var size int64
-	err := rows.Scan(&source, &path, &md5hash, &name, &size, &modified, &extension, &fileType, &category, &label, &discovered, &lastChecked)
+	err := rows.Scan(&source, &path, &md5hash, &name, &size, &modified, &extension, &fileType, &category, &subcategory, &label, &tags, &discovered, &lastChecked)
 	if err != nil {
 		log.Fatal(err)
 	}
-	return &FoundFile{Source: source, Path: path, Md5hash: md5hash, Name: name, Extension: extension, Type: fileType, Size: size, Modified: modified, Category: category, Label: label, Discovered: discovered, LastChecked: lastChecked}
+	return &FoundFile{Source: source, Path: path, Md5hash: md5hash, Name: name, Extension: extension, Type: fileType, Size: size, Modified: modified, Category: category, Subcategory: subcategory, Label: label, Tags: tags, Discovered: discovered, LastChecked: lastChecked}
 }
 
 // Save ...
 func (ff *FoundFile) Save() {
 	// If the file changes, it is considered a different file, even if it is in the same path.
 	const sql = `
-		INSERT INTO found_files (source, path, md5hash, name, extension, type, size, modified, discovered, last_checked, category, label)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO found_files (source, path, md5hash, name, extension, type, size, modified, discovered, last_checked, category, subcategory, label, tags)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (source, path, md5hash) DO UPDATE SET
 			name=excluded.name,
 			type=excluded.type,
@@ -109,8 +112,10 @@ func (ff *FoundFile) Save() {
 			discovered=excluded.discovered,
 			last_checked=excluded.last_checked,
 			category=excluded.category,
-			label=excluded.label`
-	_, err := db.Exec(sql, ff.Source, ff.Path, ff.Md5hash, ff.Name, ff.Extension, ff.Type, ff.Size, ff.Modified, ff.Discovered, ff.LastChecked, ff.Category, ff.Label)
+			subcategory=excluded.subcategory,
+			label=excluded.label,
+			tags=excluded.tags`
+	_, err := db.Exec(sql, ff.Source, ff.Path, ff.Md5hash, ff.Name, ff.Extension, ff.Type, ff.Size, ff.Modified, ff.Discovered, ff.LastChecked, ff.Category, ff.Subcategory, ff.Label, ff.Tags)
 	if err != nil {
 		log.Panic(err)
 	}
