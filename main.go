@@ -2,7 +2,6 @@ package main
 
 import (
 	"crypto/md5"
-	"database/sql"
 	"flag"
 	"fmt"
 	"io"
@@ -22,8 +21,9 @@ func main() {
 	indexSource := indexCmd.String("source", "", "")
 	indexLabel := indexCmd.String("label", "", "")
 	indexCategory := indexCmd.String("category", "", "")
+	indexDb := indexCmd.String("db", "", "database path - defaults to $HOMEDIR/index.db")
 	indexDryrun := indexCmd.Bool("dryrun", false, "dryrun")
-	indexSkipDiscovered := indexCmd.Bool("skip-discovered", false, "skip discovered files (path, source, and size already match")
+	indexReindexDiscovered := indexCmd.Bool("reindex", false, "reindex previously discovered files that haven't changed")
 
 	path, err := os.Getwd()
 	if err != nil {
@@ -37,31 +37,22 @@ func main() {
 		fmt.Println("Running in dryrun mode")
 	}
 
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		log.Fatal(err)
-	}
-	db, err := sql.Open("sqlite3", filepath.Join(homeDir, "index.db"))
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer db.Close()
-	models.CreateFoundFileTable(db)
-
 	switch os.Args[1] {
 	case "index":
 		indexCmd.Parse(os.Args[2:])
+		models.InitDB(*indexDb)
+		defer models.CloseDB()
 		if *indexSource == "" {
 			log.Fatal("Please specify a source flag, i.e. -source mylaptop")
 		}
-		scanPath(db, *indexSource, path, *indexCategory, *indexLabel, *indexSkipDiscovered, *indexDryrun)
+		scanPath(*indexSource, path, *indexCategory, *indexLabel, *indexReindexDiscovered, *indexDryrun)
 	default:
 		fmt.Println("expected 'index' subcommand")
 		os.Exit(1)
 	}
 }
 
-func scanPath(db *sql.DB, source string, path string, category string, label string, skipDiscovered bool, dryrun bool) {
+func scanPath(source string, path string, category string, label string, reindexDiscovered bool, dryrun bool) {
 	foundFiles := walkFiles(path, source)
 	fmt.Println()
 	if len(foundFiles) == 0 {
@@ -69,10 +60,11 @@ func scanPath(db *sql.DB, source string, path string, category string, label str
 		return
 	}
 	prev, new, skipped := 0, 0, 0
-	if skipDiscovered {
+	if !reindexDiscovered {
+		// TODO: Also include modified date
 		var foundFiles2 []models.FoundFile
 		for _, ff := range foundFiles {
-			previousFF := models.GetFoundFileWithSize(db, source, ff.Path, ff.Size)
+			previousFF := models.GetFoundFileWithSize(source, ff.Path, ff.Size)
 			if previousFF != nil {
 				skipped++
 			} else {
@@ -92,7 +84,7 @@ func scanPath(db *sql.DB, source string, path string, category string, label str
 	fmt.Println("\nCalculating md5 sums and adding to database:")
 	for _, ff := range foundFiles {
 		md5hash := getMd5hash(ff.Path)
-		previousFF := models.GetFoundFileWithMd5hash(db, source, ff.Path, md5hash)
+		previousFF := models.GetFoundFileWithMd5hash(source, ff.Path, md5hash)
 		if previousFF != nil {
 			// File is "new" if md5hash is different
 			previousFF.LastChecked = ff.LastChecked
@@ -113,7 +105,7 @@ func scanPath(db *sql.DB, source string, path string, category string, label str
 			ff.Label = label
 		}
 		ff.LastChecked = time.Now()
-		ff.Save(db)
+		ff.Save()
 		fmt.Print(".")
 	}
 	fmt.Println("\nNew:", new, "   Previous:", prev, "   Skipped:", skipped)

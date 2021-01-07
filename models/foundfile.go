@@ -23,7 +23,7 @@ type FoundFile struct {
 }
 
 // CreateFoundFileTable ...
-func CreateFoundFileTable(db *sql.DB) {
+func CreateFoundFileTable() {
 	const sql = `
 		CREATE TABLE if not exists found_files (
 			source TEXT NOT NULL,
@@ -50,7 +50,7 @@ func CreateFoundFileTable(db *sql.DB) {
 }
 
 // GetFoundFileWithMd5hash ...
-func GetFoundFileWithMd5hash(db *sql.DB, source string, path string, md5hash string) *FoundFile {
+func GetFoundFileWithMd5hash(source string, path string, md5hash string) *FoundFile {
 	// FIXME: Not following go pattern, need to use interface
 	const sql = `
 		SELECT source, path, md5hash, name, size, modified, extension, type, category, label, discovered, last_checked
@@ -67,7 +67,7 @@ func GetFoundFileWithMd5hash(db *sql.DB, source string, path string, md5hash str
 }
 
 // GetFoundFileWithSize ...
-func GetFoundFileWithSize(db *sql.DB, source string, path string, size int64) *FoundFile {
+func GetFoundFileWithSize(source string, path string, size int64) *FoundFile {
 	// FIXME: Not following go pattern, need to use interface
 	const sql = `
 		SELECT source, path, md5hash, name, size, modified, extension, type, category, label, discovered, last_checked
@@ -95,7 +95,7 @@ func toFoundFile(rows *sql.Rows) *FoundFile {
 }
 
 // Save ...
-func (ff *FoundFile) Save(db *sql.DB) {
+func (ff *FoundFile) Save() {
 	// If the file changes, it is considered a different file, even if it is in the same path.
 	const sql = `
 		INSERT INTO found_files (source, path, md5hash, name, extension, type, size, modified, discovered, last_checked, category, label)
