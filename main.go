@@ -69,7 +69,7 @@ func scanPath(source string, path string, category string, label string, reindex
 		// TODO: Also include modified date
 		var foundFiles2 []models.FoundFile
 		for _, ff := range foundFiles {
-			previousFF := models.GetFoundFileWithSize(source, ff.Path, ff.Size)
+			previousFF := models.GetFoundFileWithSizeAndModified(source, ff.Path, ff.Size, ff.Modified)
 			if previousFF != nil {
 				numProcessed++
 				sizeProcessed += float32(ff.Size)

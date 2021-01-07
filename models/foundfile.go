@@ -67,12 +67,12 @@ func GetFoundFileWithMd5hash(source string, path string, md5hash string) *FoundF
 }
 
 // GetFoundFileWithSize ...
-func GetFoundFileWithSize(source string, path string, size int64) *FoundFile {
+func GetFoundFileWithSizeAndModified(source string, path string, size int64, modified time.Time) *FoundFile {
 	// FIXME: Not following go pattern, need to use interface
 	const sql = `
 		SELECT source, path, md5hash, name, size, modified, extension, type, category, label, discovered, last_checked
-		FROM found_files WHERE source = ? and path = ? and size = ?`
-	rows, err := db.Query(sql, source, path, size)
+		FROM found_files WHERE source = ? and path = ? and size = ? and modified = ?`
+	rows, err := db.Query(sql, source, path, size, modified)
 	if err != nil {
 		log.Panic(err)
 	}
