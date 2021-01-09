@@ -17,65 +17,100 @@ import (
 )
 
 func main() {
-	indexCmd := flag.NewFlagSet("index", flag.ExitOnError)
-	indexSource := indexCmd.String("source", "", "")
-	indexLabel := indexCmd.String("label", "", "")
-	indexCategory := indexCmd.String("category", "", "")
-	indexSubcategory := indexCmd.String("subcategory", "", "")
-	indexTags := indexCmd.String("tags", "", "")
-	indexDb := indexCmd.String("db", "", "database path - defaults to $HOMEDIR/index.db")
-	indexDryrun := indexCmd.Bool("dryrun", false, "dryrun")
-	indexReindexDiscovered := indexCmd.Bool("reindex", false, "reindex previously discovered files that haven't changed")
-
 	path, err := os.Getwd()
 	if err != nil {
 		log.Fatal(err)
 	}
 	if len(os.Args) < 2 {
-		fmt.Println("expected 'index' subcommand")
+		fmt.Println("expected 'index' or 'show' subcommand")
 		os.Exit(1)
-	}
-	if *indexDryrun {
-		fmt.Println("Running in dryrun mode")
 	}
 
 	switch os.Args[1] {
 	case "index":
+		indexCmd := flag.NewFlagSet("index", flag.ExitOnError)
+		source := indexCmd.String("source", "", "")
+		label := indexCmd.String("label", "", "")
+		category := indexCmd.String("category", "", "")
+		subcategory := indexCmd.String("subcategory", "", "")
+		tags := indexCmd.String("tags", "", "")
+		dbPath := indexCmd.String("db", "", "database path - defaults to $HOMEDIR/index.db")
+		indexReindexDiscovered := indexCmd.Bool("reindex", false, "reindex previously discovered files that haven't changed")
 		indexCmd.Parse(os.Args[2:])
-		models.InitDB(*indexDb)
+
+		models.InitDB(*dbPath)
 		defer models.CloseDB()
-		if *indexSource == "" {
+		if *source == "" {
 			log.Fatal("Please specify a source flag, i.e. -source mylaptop")
 		}
-		scanPath(*indexSource, path, *indexCategory, *indexSubcategory, *indexLabel, *indexTags, *indexReindexDiscovered, *indexDryrun)
+		indexPath(*source, path, *category, *subcategory, *label, *tags, *indexReindexDiscovered)
+	case "show":
+		showCmd := flag.NewFlagSet("show", flag.ExitOnError)
+		source := showCmd.String("source", "", "")
+		dbPath := showCmd.String("db", "", "database path - defaults to $HOMEDIR/index.db")
+		showCmd.Parse(os.Args[2:])
+
+		models.InitDB(*dbPath)
+		defer models.CloseDB()
+		showNewFiles(*source, path)
 	default:
 		fmt.Println("expected 'index' subcommand")
 		os.Exit(1)
 	}
 }
 
-func scanPath(source string, path string, category string, subcategory string, label string, tags string, reindexDiscovered bool, dryrun bool) {
+func showNewFiles(source string, path string) {
+	foundFiles := walkFiles(path, source)
+	fmt.Println()
+	var foundFiles2 []models.FoundFile
+	for _, ff := range foundFiles {
+		previousFF := models.GetFoundFileWithSizeAndModified(source, ff.Path, ff.Size, ff.Modified)
+		if previousFF == nil {
+			foundFiles2 = append(foundFiles2, ff)
+		}
+	}
+	if foundFiles2 == nil {
+		fmt.Println("No new files found")
+		return
+	}
+	displayFoundFilesSummary(foundFiles2)
+}
+
+func indexPath(source string, path string, category string, subcategory string, label string, tags string, reindexDiscovered bool) {
 	foundFiles := walkFiles(path, source)
 	fmt.Println()
 	if len(foundFiles) == 0 {
 		fmt.Println("No files found")
 		return
 	}
-	prev, new, skipped := 0, 0, 0
-	numProcessed, numTotal := 0, len(foundFiles)
-	var sizeProcessed, sizeTotal float32
+	numSkipped, numProcessed, numTotal := 0, 0, len(foundFiles)
+	var sizeSkipped, sizeProcessed, sizeTotal float32
 	for _, ff := range foundFiles {
 		sizeTotal += float32(ff.Size)
 	}
+	var unit float32
+	var unitName string
+	switch {
+	case sizeTotal > 100*1000*1000*1000:
+		unit = 1000 * 1000 * 1000
+		unitName = "GB"
+	case sizeTotal > 100*1000*1000:
+		unit = 1000 * 1000
+		unitName = "MB"
+	case sizeTotal > 100*1000:
+		unit = 1000
+		unitName = "KB"
+	default:
+		unit = 1
+		unitName = "bytes"
+	}
 	if !reindexDiscovered {
-		// TODO: Also include modified date
 		var foundFiles2 []models.FoundFile
 		for _, ff := range foundFiles {
 			previousFF := models.GetFoundFileWithSizeAndModified(source, ff.Path, ff.Size, ff.Modified)
 			if previousFF != nil {
-				numProcessed++
-				sizeProcessed += float32(ff.Size)
-				skipped++
+				numSkipped++
+				sizeSkipped += float32(ff.Size)
 			} else {
 				foundFiles2 = append(foundFiles2, ff)
 			}
@@ -86,14 +121,18 @@ func scanPath(source string, path string, category string, subcategory string, l
 		}
 		foundFiles = foundFiles2
 	}
-	displayFoundFilesSummary(foundFiles)
-	if dryrun {
-		return
-	}
 	fmt.Println("\nCalculating md5 sums and adding to database...")
+	if numSkipped == 1 {
+		fmt.Printf("\nSkipping 1 file, size %.f %s\n", sizeSkipped, unitName)
+	} else if numSkipped >= 2 {
+		fmt.Printf("\nSkipping %d files, size %.f %s\n", numSkipped, sizeSkipped/unit, unitName)
+	}
+	prev, new := 0, 0
 	for _, ff := range foundFiles {
-		fmt.Printf("\nProgress  %.1f%%  %d/%d files  %.1f/%.1f KBs", sizeProcessed/sizeTotal*100, numProcessed, numTotal, sizeProcessed/1000, sizeTotal/1000)
-		fmt.Printf("\n%-80.80s\n", ff.Name)
+		l := fmt.Sprintf("(%1d/%1d): %s", numProcessed+1, numTotal-numSkipped, ff.Name)
+		fmt.Printf("\n%-80s", l)
+		fmt.Printf("\n%-80s", "")
+		fmt.Printf("\nProgress  %.1f%%  %.f/%.f %s", sizeProcessed/sizeTotal*100, sizeProcessed/unit, sizeTotal/unit, unitName)
 		md5hash := getMd5hash(ff.Path)
 		previousFF := models.GetFoundFileWithMd5hash(source, ff.Path, md5hash)
 		if previousFF != nil {
@@ -125,11 +164,14 @@ func scanPath(source string, path string, category string, subcategory string, l
 		ff.Save()
 		numProcessed++
 		sizeProcessed += float32(ff.Size)
-		fmt.Print("\u001b[1000D\u001b[3A")
+		fmt.Print("\u001b[1000D\u001b[2A")
+		time.Sleep(600000000)
 	}
-	fmt.Printf("\nComplete! Processed %d files and %.1f KBs                             ", numTotal, sizeTotal/1000)
-	fmt.Printf("\n%-80.80s\u001b[1000D", "")
-	fmt.Println("New:", new, "   Previous:", prev, "   Skipped:", skipped, "                            ")
+	fmt.Printf("\n%-80s", "")
+	l := fmt.Sprintf("Complete!")
+	fmt.Printf("\n%-80s\n", l)
+	fmt.Printf("Processed %d new and %d previous files\n", new, prev)
+	fmt.Printf("Processed size: %.f %s\n", sizeTotal/unit, unitName)
 }
 
 func walkFiles(path string, source string) []models.FoundFile {
@@ -140,7 +182,7 @@ func walkFiles(path string, source string) []models.FoundFile {
 				fmt.Println("Skipping folder", info.Name())
 				return filepath.SkipDir
 			}
-			fmt.Printf("Scanning folder %s...\n", info.Name())
+			fmt.Printf("Scanning folder %s\n", info.Name())
 		} else if IsHidden(info.Name()) {
 			return nil
 		} else {
@@ -181,11 +223,12 @@ func getMd5hash(path string) string {
 }
 
 func displayFoundFilesSummary(foundFiles []models.FoundFile) {
-	fmt.Println("Found", len(foundFiles), "files")
 	var dir string
 	lastDir := filepath.Dir(foundFiles[0].Path)
 	var dirFiles []models.FoundFile
+	var sizeTotal int64
 	for _, ff := range foundFiles {
+		sizeTotal += ff.Size
 		dir = filepath.Dir(ff.Path)
 		if dir != lastDir {
 			fmt.Printf("\n%s\n", lastDir)
@@ -194,10 +237,11 @@ func displayFoundFilesSummary(foundFiles []models.FoundFile) {
 			dirFiles = nil
 		}
 		dirFiles = append(dirFiles, ff)
-
 	}
 	fmt.Printf("\n%s\n", dir)
 	displayFoundFileList(dirFiles)
+	fmt.Println("\nFound", len(foundFiles), "files")
+	fmt.Printf("Total Size: %d\n", sizeTotal)
 }
 
 func displayFoundFileList(foundFiles []models.FoundFile) {

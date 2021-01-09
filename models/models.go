@@ -2,7 +2,6 @@ package models
 
 import (
 	"database/sql"
-	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -19,7 +18,6 @@ func InitDB(dbPath string) {
 		}
 		dbPath = filepath.Join(homeDir, "index.db")
 	}
-	fmt.Println(dbPath)
 	var err error
 	db, err = sql.Open("sqlite3", dbPath)
 	if err != nil {
