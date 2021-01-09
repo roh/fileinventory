@@ -1,4 +1,4 @@
-package models
+package inventory
 
 import (
 	"database/sql"
@@ -9,25 +9,25 @@ import (
 
 var db *sql.DB
 
-// InitDB ...
-func InitDB(dbPath string) {
-	if dbPath == "" {
+// Init ...
+func Init(path string) {
+	if path == "" {
 		homeDir, err := os.UserHomeDir()
 		if err != nil {
 			log.Fatal(err)
 		}
-		dbPath = filepath.Join(homeDir, "index.db")
+		path = filepath.Join(homeDir, "index.db")
 	}
 	var err error
-	db, err = sql.Open("sqlite3", dbPath)
+	db, err = sql.Open("sqlite3", path)
 	if err != nil {
 		log.Fatal(err)
 	}
 	CreateFoundFileTable()
 }
 
-// CloseDB ...
-func CloseDB() {
+// Close ...
+func Close() {
 	if db != nil {
 		db.Close()
 	}

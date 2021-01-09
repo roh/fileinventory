@@ -1,4 +1,4 @@
-package models
+package inventory
 
 import (
 	"database/sql"

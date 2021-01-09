@@ -11,7 +11,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/roh/fileinventory/models"
+	"github.com/roh/fileinventory/inventory"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -38,8 +38,8 @@ func main() {
 		indexReindexDiscovered := indexCmd.Bool("reindex", false, "reindex previously discovered files that haven't changed")
 		indexCmd.Parse(os.Args[2:])
 
-		models.InitDB(*dbPath)
-		defer models.CloseDB()
+		inventory.Init(*dbPath)
+		defer inventory.Close()
 		if *source == "" {
 			log.Fatal("Please specify a source flag, i.e. -source mylaptop")
 		}
@@ -50,8 +50,8 @@ func main() {
 		dbPath := showCmd.String("db", "", "database path - defaults to $HOMEDIR/index.db")
 		showCmd.Parse(os.Args[2:])
 
-		models.InitDB(*dbPath)
-		defer models.CloseDB()
+		inventory.Init(*dbPath)
+		defer inventory.Close()
 		showFiles(*source, path)
 	default:
 		fmt.Println("expected 'index' subcommand")
@@ -62,9 +62,9 @@ func main() {
 func showFiles(source string, path string) {
 	foundFiles := walkFiles(path, source)
 	fmt.Println()
-	var foundFiles2 []models.FoundFile
+	var foundFiles2 []inventory.FoundFile
 	for _, ff := range foundFiles {
-		previousFF := models.GetFoundFileWithSizeAndModified(source, ff.Path, ff.Size, ff.Modified)
+		previousFF := inventory.GetFoundFileWithSizeAndModified(source, ff.Path, ff.Size, ff.Modified)
 		if previousFF == nil {
 			ff.Discovered = time.Time{}
 		}
@@ -106,9 +106,9 @@ func indexPath(source string, path string, category string, subcategory string, 
 		unitName = "bytes"
 	}
 	if !reindexDiscovered {
-		var foundFiles2 []models.FoundFile
+		var foundFiles2 []inventory.FoundFile
 		for _, ff := range foundFiles {
-			previousFF := models.GetFoundFileWithSizeAndModified(source, ff.Path, ff.Size, ff.Modified)
+			previousFF := inventory.GetFoundFileWithSizeAndModified(source, ff.Path, ff.Size, ff.Modified)
 			if previousFF != nil {
 				numSkipped++
 				sizeSkipped += float32(ff.Size)
@@ -142,7 +142,7 @@ func indexPath(source string, path string, category string, subcategory string, 
 		l := fmt.Sprintf("(%1d/%1d): %s", numProcessed+1, numTotal-numSkipped, ff.Name)
 		fmt.Printf("\n%-80s", l)
 		fmt.Printf("\n%-80s", "")
-		fmt.Printf("\nProgress  %.1f%%  %.f/%.f %-40s", sizeProcessed/sizeTotal*100, sizeProcessed/unit, sizeTotal/unit, unitName)
+		fmt.Printf("\nProgress  %.1f%%  %.f/%.f %-40s", (sizeSkipped+sizeProcessed)/sizeTotal*100, (sizeSkipped+sizeProcessed)/unit, sizeTotal/unit, unitName)
 		speedFmt := ""
 		if speed > 0 {
 			// TODO: Use a window to get a more accurate estimate
@@ -150,7 +150,7 @@ func indexPath(source string, path string, category string, subcategory string, 
 		}
 		fmt.Printf("\nTime elapsed: %s %s", time.Since(start), speedFmt)
 		md5hash := getMd5hash(ff.Path)
-		previousFF := models.GetFoundFileWithMd5hash(source, ff.Path, md5hash)
+		previousFF := inventory.GetFoundFileWithMd5hash(source, ff.Path, md5hash)
 		if previousFF != nil {
 			// File is "new" if md5hash is different
 			previousFF.LastChecked = ff.LastChecked
@@ -190,8 +190,8 @@ func indexPath(source string, path string, category string, subcategory string, 
 	fmt.Printf("Processed size: %.f %s\n", sizeTotal/unit, unitName)
 }
 
-func walkFiles(path string, source string) []models.FoundFile {
-	var foundFiles []models.FoundFile
+func walkFiles(path string, source string) []inventory.FoundFile {
+	var foundFiles []inventory.FoundFile
 	err := filepath.Walk(path, func(path string, info os.FileInfo, err error) error {
 		if info.IsDir() {
 			if IsHidden(info.Name()) {
@@ -202,7 +202,7 @@ func walkFiles(path string, source string) []models.FoundFile {
 		} else if IsHidden(info.Name()) {
 			return nil
 		} else {
-			ff := models.FoundFile{Source: source, Path: path}
+			ff := inventory.FoundFile{Source: source, Path: path}
 			ff.Name = info.Name()
 			ff.Extension = GetNormalizedExtension(path)
 			ff.Type = GetFileType(path)
@@ -238,10 +238,10 @@ func getMd5hash(path string) string {
 	return fmt.Sprintf("%x", h.Sum(nil))
 }
 
-func displayFoundFilesSummary(foundFiles []models.FoundFile) {
+func displayFoundFilesSummary(foundFiles []inventory.FoundFile) {
 	var dir string
 	lastDir := filepath.Dir(foundFiles[0].Path)
-	var dirFiles []models.FoundFile
+	var dirFiles []inventory.FoundFile
 	var sizeTotal int64
 	for _, ff := range foundFiles {
 		sizeTotal += ff.Size
@@ -260,7 +260,7 @@ func displayFoundFilesSummary(foundFiles []models.FoundFile) {
 	fmt.Printf("Total Size: %d\n", sizeTotal)
 }
 
-func displayFoundFileList(foundFiles []models.FoundFile) {
+func displayFoundFileList(foundFiles []inventory.FoundFile) {
 	fmt.Print("Discovered          Modified            Size (KB)    Type        Name\n")
 	for _, ff := range foundFiles {
 		s := float32(ff.Size) / 1000
