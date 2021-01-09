@@ -52,22 +52,23 @@ func main() {
 
 		models.InitDB(*dbPath)
 		defer models.CloseDB()
-		showNewFiles(*source, path)
+		showFiles(*source, path)
 	default:
 		fmt.Println("expected 'index' subcommand")
 		os.Exit(1)
 	}
 }
 
-func showNewFiles(source string, path string) {
+func showFiles(source string, path string) {
 	foundFiles := walkFiles(path, source)
 	fmt.Println()
 	var foundFiles2 []models.FoundFile
 	for _, ff := range foundFiles {
 		previousFF := models.GetFoundFileWithSizeAndModified(source, ff.Path, ff.Size, ff.Modified)
 		if previousFF == nil {
-			foundFiles2 = append(foundFiles2, ff)
+			ff.Discovered = time.Time{}
 		}
+		foundFiles2 = append(foundFiles2, ff)
 	}
 	if foundFiles2 == nil {
 		fmt.Println("No new files found")
@@ -128,11 +129,26 @@ func indexPath(source string, path string, category string, subcategory string, 
 		fmt.Printf("\nSkipping %d files, size %.f %s\n", numSkipped, sizeSkipped/unit, unitName)
 	}
 	prev, new := 0, 0
+	start := time.Now()
 	for _, ff := range foundFiles {
+		// sizeRemaining := sizeTotal - sizeSkipped - sizeProcessed
+		timeElapsed := time.Since(start).Seconds()
+		speed := float32(0)
+		remaining := float32(0)
+		if timeElapsed > 0 && numProcessed > 0 && sizeProcessed > 1000 {
+			speed = sizeProcessed / float32(timeElapsed)
+			remaining = (sizeTotal - sizeSkipped - sizeProcessed) / speed
+		}
 		l := fmt.Sprintf("(%1d/%1d): %s", numProcessed+1, numTotal-numSkipped, ff.Name)
 		fmt.Printf("\n%-80s", l)
 		fmt.Printf("\n%-80s", "")
-		fmt.Printf("\nProgress  %.1f%%  %.f/%.f %s", sizeProcessed/sizeTotal*100, sizeProcessed/unit, sizeTotal/unit, unitName)
+		fmt.Printf("\nProgress  %.1f%%  %.f/%.f %-40s", sizeProcessed/sizeTotal*100, sizeProcessed/unit, sizeTotal/unit, unitName)
+		speedFmt := ""
+		if speed > 0 {
+			// TODO: Use a window to get a more accurate estimate
+			speedFmt = fmt.Sprintf("Speed: %.1f MB/s Remaining %.fs", speed*0.000001, remaining)
+		}
+		fmt.Printf("\nTime elapsed: %s %s", time.Since(start), speedFmt)
 		md5hash := getMd5hash(ff.Path)
 		previousFF := models.GetFoundFileWithMd5hash(source, ff.Path, md5hash)
 		if previousFF != nil {
@@ -164,13 +180,13 @@ func indexPath(source string, path string, category string, subcategory string, 
 		ff.Save()
 		numProcessed++
 		sizeProcessed += float32(ff.Size)
-		fmt.Print("\u001b[1000D\u001b[2A")
-		time.Sleep(600000000)
+		fmt.Print("\u001b[1000D\u001b[3A")
 	}
-	fmt.Printf("\n%-80s", "")
+	fmt.Printf("\n%-80.80s", "")
 	l := fmt.Sprintf("Complete!")
-	fmt.Printf("\n%-80s\n", l)
-	fmt.Printf("Processed %d new and %d previous files\n", new, prev)
+	fmt.Printf("\n%-80.80s\n", l)
+	l = fmt.Sprintf("Processed %d new and %d previous files", new, prev)
+	fmt.Printf("%-80.80s\n", l)
 	fmt.Printf("Processed size: %.f %s\n", sizeTotal/unit, unitName)
 }
 
@@ -248,6 +264,10 @@ func displayFoundFileList(foundFiles []models.FoundFile) {
 	fmt.Print("Discovered          Modified            Size (KB)    Type        Name\n")
 	for _, ff := range foundFiles {
 		s := float32(ff.Size) / 1000
-		fmt.Printf("%s    %s    %9.f    %-8s    %s\n", ff.Discovered.Format("2006-01-02 15:04"), ff.Modified.Format("2006-01-02 15:04"), s, ff.Type, ff.Name)
+		d := ""
+		if !ff.Discovered.IsZero() {
+			d = ff.Discovered.Format("2006-01-02 15:04")
+		}
+		fmt.Printf("%16s    %s    %9.f    %-8s    %s\n", d, ff.Modified.Format("2006-01-02 15:04"), s, ff.Type, ff.Name)
 	}
 }
