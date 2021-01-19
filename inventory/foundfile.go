@@ -69,7 +69,41 @@ func GetFoundFileWithMd5hash(source string, path string, md5hash string) *FoundF
 	return nil
 }
 
-// GetFoundFileWithSize ...
+// GetFoundFileOtherSourcesWithMd5hash ...
+func GetFoundFileOtherSourcesWithMd5hash(excludeSource string, md5hash string) []FoundFile {
+	const sql = `
+		SELECT source, path, md5hash, name, size, modified, extension, type, category, subcategory, label, tags, discovered, last_checked
+		FROM found_files WHERE source != ? and md5hash = ?`
+	rows, err := db.Query(sql, excludeSource, md5hash)
+	if err != nil {
+		log.Panic(err)
+	}
+	defer rows.Close()
+	var ffs []FoundFile
+	for rows.Next() {
+		ffs = append(ffs, *toFoundFile(rows))
+	}
+	return ffs
+}
+
+// GetSimilarFoundFileSourcesWithSizeAndModified ...
+func GetSimilarFoundFileSourcesWithSizeAndModified(size int64, modified time.Time) []FoundFile {
+	const sql = `
+		SELECT source, path, md5hash, name, size, modified, extension, type, category, subcategory, label, tags, discovered, last_checked
+		FROM found_files WHERE size = ? and modified = ?`
+	rows, err := db.Query(sql, size, modified)
+	if err != nil {
+		log.Panic(err)
+	}
+	defer rows.Close()
+	var ffs []FoundFile
+	for rows.Next() {
+		ffs = append(ffs, *toFoundFile(rows))
+	}
+	return ffs
+}
+
+// GetFoundFileWithSizeAndModified ...
 func GetFoundFileWithSizeAndModified(source string, path string, size int64, modified time.Time) *FoundFile {
 	// FIXME: Not following go pattern, need to use interface
 	const sql = `

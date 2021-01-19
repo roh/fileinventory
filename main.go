@@ -22,7 +22,7 @@ func main() {
 		log.Fatal(err)
 	}
 	if len(os.Args) < 2 {
-		fmt.Println("expected 'index' or 'show' subcommand")
+		fmt.Println("expected 'index', 'ls', or 'health' command")
 		os.Exit(1)
 	}
 
@@ -44,22 +44,73 @@ func main() {
 			log.Fatal("Please specify a source flag, i.e. -source mylaptop")
 		}
 		indexPath(*source, path, *category, *subcategory, *label, *tags, *indexReindexDiscovered)
-	case "show":
-		showCmd := flag.NewFlagSet("show", flag.ExitOnError)
-		source := showCmd.String("source", "", "")
-		dbPath := showCmd.String("db", "", "database path - defaults to $HOMEDIR/index.db")
-		showCmd.Parse(os.Args[2:])
+	case "ls":
+		lsCmd := flag.NewFlagSet("ls", flag.ExitOnError)
+		source := lsCmd.String("source", "", "")
+		dbPath := lsCmd.String("db", "", "database path - defaults to $HOMEDIR/index.db")
+		lsCmd.Parse(os.Args[2:])
 
 		inventory.Init(*dbPath)
 		defer inventory.Close()
-		showFiles(*source, path)
+		listFiles(*source, path)
+	case "health":
+		healthCmd := flag.NewFlagSet("health", flag.ExitOnError)
+		source := healthCmd.String("source", "", "")
+		dbPath := healthCmd.String("db", "", "database path - defaults to $HOMEDIR/index.db")
+		healthCmd.Parse(os.Args[2:])
+
+		inventory.Init(*dbPath)
+		defer inventory.Close()
+		checkHealthFiles(*source, path)
 	default:
 		fmt.Println("expected 'index' subcommand")
 		os.Exit(1)
 	}
 }
 
-func showFiles(source string, path string) {
+func checkHealthFiles(source string, path string) {
+	foundFiles := walkFiles(path, source)
+	var notFoundFiles []inventory.FoundFile
+	fmt.Println()
+	nFound := 0
+	nNotFound := 0
+	nNotIndexed := 0
+	for _, ff := range foundFiles {
+		previousFF := inventory.GetFoundFileWithSizeAndModified(source, ff.Path, ff.Size, ff.Modified)
+		if previousFF == nil {
+			nNotIndexed++
+			continue
+		}
+		otherFFs := inventory.GetFoundFileOtherSourcesWithMd5hash(source, previousFF.Md5hash)
+		if len(otherFFs) == 0 {
+			notFoundFiles = append(notFoundFiles, ff)
+			nNotFound++
+			continue
+		}
+		nFound++
+		fmt.Println(ff.Path)
+		for _, off := range otherFFs {
+			fmt.Printf("%-16s    %s    %s\n", off.Source, off.LastChecked.Format("2006-01-02 15:04"), off.Path)
+		}
+		fmt.Println()
+	}
+	fmt.Println()
+	if len(notFoundFiles) > 0 {
+		fmt.Println("Files without other sources:")
+		for _, ff := range notFoundFiles {
+			fmt.Println(ff.Path)
+		}
+	}
+
+	if nNotIndexed > 0 {
+		fmt.Println(nNotIndexed, "files are not indexed")
+	}
+	if nFound+nNotFound > 0 {
+		fmt.Printf("Found %d out of %d files. Health is %.1f%%\n", nFound, nFound+nNotFound, float32(nFound)/(float32(nFound+nNotFound))*100)
+	}
+}
+
+func listFiles(source string, path string) {
 	foundFiles := walkFiles(path, source)
 	fmt.Println()
 	var foundFiles2 []inventory.FoundFile
@@ -89,22 +140,6 @@ func indexPath(source string, path string, category string, subcategory string, 
 	for _, ff := range foundFiles {
 		sizeTotal += float32(ff.Size)
 	}
-	var unit float32
-	var unitName string
-	switch {
-	case sizeTotal > 100*1000*1000*1000:
-		unit = 1000 * 1000 * 1000
-		unitName = "GB"
-	case sizeTotal > 100*1000*1000:
-		unit = 1000 * 1000
-		unitName = "MB"
-	case sizeTotal > 100*1000:
-		unit = 1000
-		unitName = "KB"
-	default:
-		unit = 1
-		unitName = "bytes"
-	}
 	if !reindexDiscovered {
 		var foundFiles2 []inventory.FoundFile
 		for _, ff := range foundFiles {
@@ -123,6 +158,7 @@ func indexPath(source string, path string, category string, subcategory string, 
 		foundFiles = foundFiles2
 	}
 	fmt.Println("\nCalculating md5 sums and adding to database...")
+	unit, unitName := bestUnit(int64(sizeTotal))
 	if numSkipped == 1 {
 		fmt.Printf("\nSkipping 1 file, size %.f %s\n", sizeSkipped, unitName)
 	} else if numSkipped >= 2 {
