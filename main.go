@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/roh/fileinventory/inventory"
@@ -48,11 +49,16 @@ func main() {
 		lsCmd := flag.NewFlagSet("ls", flag.ExitOnError)
 		source := lsCmd.String("source", "", "")
 		dbPath := lsCmd.String("db", "", "database path - defaults to $HOMEDIR/index.db")
+		new := lsCmd.Bool("new", false, "")
 		lsCmd.Parse(os.Args[2:])
 
 		inventory.Init(*dbPath)
 		defer inventory.Close()
-		listFiles(*source, path)
+		if *new {
+			checkNewFiles(*source, path)
+		} else {
+			listFiles(*source, path)
+		}
 	case "health":
 		healthCmd := flag.NewFlagSet("health", flag.ExitOnError)
 		source := healthCmd.String("source", "", "")
@@ -100,6 +106,7 @@ func checkHealthFiles(source string, path string) {
 		for _, ff := range notFoundFiles {
 			fmt.Println(ff.Path)
 		}
+		fmt.Println()
 	}
 
 	if nNotIndexed > 0 {
@@ -107,6 +114,46 @@ func checkHealthFiles(source string, path string) {
 	}
 	if nFound+nNotFound > 0 {
 		fmt.Printf("Found %d out of %d files. Health is %.1f%%\n", nFound, nFound+nNotFound, float32(nFound)/(float32(nFound+nNotFound))*100)
+	}
+}
+
+// Searches for files with same filesize and modified timestamp
+func checkNewFiles(source string, path string) {
+	foundFiles := walkFiles(path, source)
+	var notFoundFiles []inventory.FoundFile
+	fmt.Println()
+	nNotFound := 0
+	nNotIndexed := 0
+	for _, ff := range foundFiles {
+		previousFF := inventory.GetFoundFileWithSizeAndModified(source, ff.Path, ff.Size, ff.Modified)
+		if previousFF != nil {
+			ff.Discovered = previousFF.Discovered
+			otherFFs := inventory.GetFoundFileOtherSourcesWithMd5hash(source, previousFF.Md5hash)
+			if len(otherFFs) == 0 {
+				notFoundFiles = append(notFoundFiles, ff)
+				nNotFound++
+			}
+		} else {
+			ff.Discovered = time.Time{}
+			nNotIndexed++
+			similarFiles := inventory.GetSimilarFoundFileSourcesWithSizeAndModified(ff.Size, ff.Modified)
+			if len(similarFiles) == 0 {
+				notFoundFiles = append(notFoundFiles, ff)
+				nNotFound++
+			} else {
+				fmt.Println(ff.Path)
+				for _, f := range similarFiles {
+					fmt.Printf("%-16s    %s    %s\n", f.Source, f.LastChecked.Format("2006-01-02 15:04"), f.Path)
+				}
+			}
+		}
+	}
+	if nNotFound > 0 {
+		fmt.Printf("\n%s\n\n", strings.Repeat("-", 80))
+		fmt.Println(nNotFound, "files do not have any similar/redundant files in other sources:")
+		for _, f := range notFoundFiles {
+			fmt.Println(f.Path)
+		}
 	}
 }
 
@@ -118,6 +165,8 @@ func listFiles(source string, path string) {
 		previousFF := inventory.GetFoundFileWithSizeAndModified(source, ff.Path, ff.Size, ff.Modified)
 		if previousFF == nil {
 			ff.Discovered = time.Time{}
+		} else {
+			ff.Discovered = previousFF.Discovered
 		}
 		foundFiles2 = append(foundFiles2, ff)
 	}
